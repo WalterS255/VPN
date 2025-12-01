@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+
+  # ==========================================================
+  # 1. Generador de Dataset Sintético
+  # ==========================================================
+  data-generator:
+    build: ./data-generator
+    container_name: data-generator
+    volumes:
+      - ./data:/app
+    command: ["python", "generate_dataset.py"]
+    networks:
+      - project-net
+
+  # ==========================================================
+  # 2. Entrenamiento del Motor ML
+  # ==========================================================
+  ml-engine:
+    build: ./ml-engine
+    container_name: ml-engine
+    depends_on:
+      - data-generator
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    environment:
+      - DATASET_PATH=/app/data/dataset.csv
+    command: ["python", "train.py"]
+    networks:
+      - project-net
+
+  # ==========================================================
+  # 3. Servicio de Inferencia en Tiempo Real (FastAPI)
+  # ==========================================================
+  inference:
+    build: ./inference
+    container_name: inference
+    depends_on:
+      - ml-engine
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+    environment:
+      - MODEL_PATH=/app/models/model_rf.pkl
+      - SCALER_PATH=/app/models/scaler.pkl
+      - AE_PATH=/app/models/autoencoder.h5
+      - ZEROTRUST_URL=http://zerotrust:9000/evaluate
+    networks:
+      - project-net
+
+  # ==========================================================
+  # 4. Motor Zero Trust
+  # ==========================================================
+  zerotrust:
+    build: ./zerotrust
+    container_name: zerotrust
+    ports:
+      - "9000:9000"
+    networks:
+      - project-net
+
+  # ==========================================================
+  # 5. Telemetry (Simulación de tráfico)
+  # ==========================================================
+  telemetry:
+    build: ./telemetry
+    container_name: telemetry
+    depends_on:
+      - inference
+      - zerotrust
+    environment:
+      - INFERENCE_URL=http://inference:8000/predict
+    networks:
+      - project-net
+
+networks:
+  project-net:
+    driver: bridge
